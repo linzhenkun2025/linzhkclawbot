@@ -178,6 +178,22 @@ function updGallery(){
   localStorage.setItem("clawColl",JSON.stringify([...collected]));
 }
 
+// Confetti system
+let confetti=[];
+function spawnConfetti(count){
+  const cols=["#ffd200","#f7971e","#e74c3c","#3498db","#2ecc71","#9b59b6","#e67e22"];
+  for(let i=0;i<count;i++){
+    confetti.push({
+      x:Math.random()*W,y:-10-Math.random()*40,
+      vx:(Math.random()-.5)*4,vy:Math.random()*3+2,
+      rot:Math.random()*Math.PI*2,rotV:(Math.random()-.5)*.15,
+      w:4+Math.random()*6,h:3+Math.random()*4,
+      col:cols[Math.floor(Math.random()*cols.length)],
+      life:1,dec:.003+Math.random()*.002
+    });
+  }
+}
+
 // Particles
 function spawnP(x,y,col,n){for(let i=0;i<n;i++)particles.push({x,y,vx:(Math.random()-.5)*7,vy:(Math.random()-1)*6,life:1,dec:.02+Math.random()*.03,sz:2+Math.random()*4,col})}
 function addFloat(x,y,txt,col){floatTexts.push({x,y,txt,col,life:1,vy:-2})}
@@ -185,10 +201,55 @@ function addFloat(x,y,txt,col){floatTexts.push({x,y,txt,col,life:1,vy:-2})}
 function updParticles(){
   for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=.15;p.life-=p.dec;if(p.life<=0)particles.splice(i,1)}
   for(let i=floatTexts.length-1;i>=0;i--){const f=floatTexts[i];f.y+=f.vy;f.life-=.015;if(f.life<=0)floatTexts.splice(i,1)}
+  for(let i=confetti.length-1;i>=0;i--){const c=confetti[i];c.x+=c.vx;c.y+=c.vy;c.rot+=c.rotV;c.vx*=.99;c.life-=c.dec;if(c.life<=0||c.y>H+20)confetti.splice(i,1)}
+}
+
+function drawConfetti(){
+  for(const c of confetti){
+    cx.save();cx.translate(c.x,c.y);cx.rotate(c.rot);
+    cx.globalAlpha=c.life;cx.fillStyle=c.col;
+    cx.fillRect(-c.w/2,-c.h/2,c.w,c.h);
+    cx.restore();
+  }
+  cx.globalAlpha=1;
+}
+
+// Decorative machine lights
+function drawLights(){
+  const cols=["#e74c3c","#f1c40f","#2ecc71","#3498db","#9b59b6"];
+  for(let i=0;i<10;i++){
+    const lx=20+i*(W-40)/9;
+    const phase=Math.sin(frameCount*.03+i*.7)*.5+.5;
+    const col=cols[i%cols.length];
+    cx.save();
+    cx.globalAlpha=.3+phase*.5;
+    cx.fillStyle=col;
+    cx.shadowColor=col;cx.shadowBlur=6;
+    cx.beginPath();cx.arc(lx,15,3,0,Math.PI*2);cx.fill();
+    cx.shadowBlur=0;cx.restore();
+  }
+  // Bottom lights
+  for(let i=0;i<10;i++){
+    const lx=20+i*(W-40)/9;
+    const phase=Math.sin(frameCount*.03+i*.7+Math.PI)*.5+.5;
+    const col=cols[(i+2)%cols.length];
+    cx.save();
+    cx.globalAlpha=.3+phase*.5;
+    cx.fillStyle=col;
+    cx.shadowColor=col;cx.shadowBlur=6;
+    cx.beginPath();cx.arc(lx,H-13,3,0,Math.PI*2);cx.fill();
+    cx.shadowBlur=0;cx.restore();
+  }
 }
 
 // Drawing
 function drawBg(){
+  // Subtle background gradient shift based on level
+  const hue=(level*15)%360;
+  const bgGrad=cx.createRadialGradient(W/2,H/2,50,W/2,H/2,W);
+  bgGrad.addColorStop(0,`hsla(${hue},30%,12%,.3)`);
+  bgGrad.addColorStop(1,"transparent");
+  cx.fillStyle=bgGrad;cx.fillRect(0,0,W,H);
   // Animated stars
   frameCount++;
   for(const s of stars){
@@ -198,8 +259,9 @@ function drawBg(){
     cx.beginPath();cx.arc(s.x,s.y,s.sz,0,Math.PI*2);cx.fill();
   }
   cx.globalAlpha=1;
-  // Walls
-  cx.strokeStyle="rgba(255,255,255,.1)";cx.lineWidth=2;cx.strokeRect(10,10,W-20,H-20);
+  // Walls with level-based glow
+  const wallAlpha=.1+Math.sin(frameCount*.01)*.03;
+  cx.strokeStyle=`rgba(255,255,255,${wallAlpha})`;cx.lineWidth=2;cx.strokeRect(10,10,W-20,H-20);
   // Rail
   const rg=cx.createLinearGradient(10,40,W-10,40);rg.addColorStop(0,"#333");rg.addColorStop(.5,"#555");rg.addColorStop(1,"#333");
   cx.fillStyle=rg;cx.fillRect(10,38,W-20,8);
@@ -337,7 +399,9 @@ function updClaw(){
         if(powerups.double>0)pts*=2;
         score+=pts;
         if(score>highScore){highScore=score;localStorage.setItem("clawHS",""+highScore)}
+        const prevLevel=level;
         level=Math.floor(score/100)+1;
+        if(level>prevLevel){spawnConfetti(60);showToast("升级! Lv."+level+" 🎉");sfxPowerup()}
         collected.add(p.emoji);
         spawnP(p.x,p.y,p.color,25);
         addFloat(p.x,p.y-20,"+"+pts,p.color);
@@ -492,7 +556,7 @@ function draw(){
   cx.clearRect(0,0,W,H);
   cx.save();
   if(shakeT>0)cx.translate((Math.random()-.5)*5,(Math.random()-.5)*5);
-  drawBg();drawGuide();drawPrizes();drawPU();drawRope();drawClaw();drawParticles();drawGameOver();
+  drawBg();drawLights();drawGuide();drawPrizes();drawPU();drawRope();drawClaw();drawParticles();drawConfetti();drawGameOver();
   cx.restore();
 }
 
