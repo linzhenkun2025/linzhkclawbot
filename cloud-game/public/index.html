@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Cloud Claw Machine - 云端抓娃娃机</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:linear-gradient(135deg,#0f0c29,#302b63,#24243e);font-family:'Segoe UI',system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;color:#fff;overflow-x:hidden;padding:8px}
+h1{font-size:1.8rem;margin:4px 0;background:linear-gradient(90deg,#f7971e,#ffd200);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sub{font-size:.85rem;color:#aaa;margin-bottom:6px}
+#gc{position:relative;border:3px solid #555;border-radius:12px;overflow:hidden;box-shadow:0 0 40px rgba(255,210,0,.15),inset 0 0 60px rgba(0,0,0,.4);background:#1a1a2e}
+canvas{display:block}
+.hud{display:flex;justify-content:space-between;width:100%;max-width:600px;padding:6px 0;font-size:.9rem;flex-wrap:wrap;gap:4px}
+.hud span{background:rgba(255,255,255,.08);padding:3px 12px;border-radius:20px;font-weight:600;white-space:nowrap}
+.ctrl{margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.ctrl button{padding:10px 20px;font-size:1rem;border:none;border-radius:8px;cursor:pointer;font-weight:600;transition:transform .1s;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+.ctrl button:active{transform:scale(.95)}
+.bl,.br{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff}
+.bd{background:linear-gradient(135deg,#f7971e,#ffd200);color:#1a1a2e;min-width:110px}
+.brs{background:rgba(255,255,255,.12);color:#ccc}
+.inst{margin-top:6px;font-size:.75rem;color:#666;text-align:center}
+.gallery{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;justify-content:center}
+.gallery .gi{width:44px;height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;position:relative;transition:all .3s}
+.gi.locked{background:rgba(255,255,255,.05);filter:grayscale(1) brightness(.3)}
+.gi.unlocked{background:rgba(255,210,0,.15);border:1px solid rgba(255,210,0,.3)}
+.gi .pts{position:absolute;bottom:-2px;right:2px;font-size:.5rem;color:#ffd200}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%) translateY(-100px);background:linear-gradient(135deg,#f7971e,#ffd200);color:#1a1a2e;padding:10px 24px;border-radius:30px;font-weight:700;font-size:1rem;transition:transform .4s cubic-bezier(.34,1.56,.64,1);z-index:100;pointer-events:none}
+.toast.show{transform:translateX(-50%) translateY(0)}
+.combo-display{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:3rem;font-weight:900;color:#ffd200;text-shadow:0 0 20px rgba(255,210,0,.8);opacity:0;pointer-events:none;transition:all .3s}
+.combo-display.active{opacity:1;animation:comboPulse .5s ease-out}
+@keyframes comboPulse{0%{transform:translate(-50%,-50%) scale(2);opacity:0}50%{opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}}
+@keyframes neonPulse{0%,100%{box-shadow:0 0 20px rgba(255,210,0,.15),inset 0 0 60px rgba(0,0,0,.4)}50%{box-shadow:0 0 40px rgba(255,210,0,.3),0 0 80px rgba(102,126,234,.2),inset 0 0 60px rgba(0,0,0,.4)}}
+#gc{animation:neonPulse 3s ease-in-out infinite}
+</style>
+</head>
+<body>
+<h1>Cloud Claw Machine</h1>
+<p class="sub">云端抓娃娃机 - 键盘/触屏操控</p>
+<div class="hud">
+<span>🪙 <b id="hCoins">5</b></span>
+<span>🧸 <b id="hScore">0</b></span>
+<span>🏆 <b id="hHigh">0</b></span>
+<span>⚡ Lv.<b id="hLevel">1</b></span>
+<span>🔥 x<b id="hCombo">0</b></span>
+</div>
+<div id="gc" style="position:relative">
+<canvas id="cv"></canvas>
+<div class="combo-display" id="comboDisp"></div>
+</div>
+<div class="ctrl">
+<button class="bl" id="bL">◀ 左</button>
+<button class="bd" id="bD">⬇ 抓!</button>
+<button class="br" id="bR">▶ 右</button>
+<button class="brs" id="bRs">🔄 重来</button>
+</div>
+<p class="inst">← → 移动 | 空格/↓ 抓取 | R 重来</p>
+<div class="gallery" id="gallery"></div>
+<div class="toast" id="toast"></div>
+<script>
+const cv=document.getElementById("cv"),cx=cv.getContext("2d");
+const W=Math.min(600,innerWidth-16),H=Math.min(480,innerHeight-280);
+cv.width=W;cv.height=H;
+document.getElementById("gc").style.width=W+"px";
+
+// Audio context (lazy init on first interaction)
+let audioCtx=null;
+function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)()}
+function playTone(freq,dur,type,vol){
+  if(!audioCtx)return;
+  const o=audioCtx.createOscillator(),g=audioCtx.createGain();
+  o.type=type||"sine";o.frequency.value=freq;
+  g.gain.value=vol||.15;
+  g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+dur);
+  o.connect(g);g.connect(audioCtx.destination);
+  o.start();o.stop(audioCtx.currentTime+dur);
+}
+function sfxMove(){playTone(300,.05,"square",.05)}
+function sfxDrop(){playTone(200,.3,"sawtooth",.1)}
+function sfxGrab(){playTone(500,.15,"sine",.12);setTimeout(()=>playTone(700,.15,"sine",.1),100)}
+function sfxWin(){playTone(523,.1,"sine",.15);setTimeout(()=>playTone(659,.1,"sine",.15),100);setTimeout(()=>playTone(784,.2,"sine",.15),200)}
+function sfxFail(){playTone(200,.3,"sawtooth",.1);setTimeout(()=>playTone(150,.3,"sawtooth",.08),150)}
+function sfxGameOver(){playTone(400,.2,"sine",.12);setTimeout(()=>playTone(300,.2,"sine",.1),200);setTimeout(()=>playTone(200,.4,"sine",.08),400)}
+function sfxCoin(){playTone(880,.1,"sine",.1);setTimeout(()=>playTone(1100,.15,"sine",.1),80)}
+
+// Prize types
+const TYPES=[
+  {emoji:"🧸",name:"小熊",color:"#c0392b",pts:10,sz:30,w:3},
+  {emoji:"🐰",name:"兔子",color:"#e74c3c",pts:15,sz:28,w:2.5},
+  {emoji:"🐱",name:"猫咪",color:"#f39c12",pts:20,sz:26,w:2},
+  {emoji:"🦊",name:"狐狸",color:"#e67e22",pts:25,sz:28,w:1.5},
+  {emoji:"🐼",name:"熊猫",color:"#2c3e50",pts:30,sz:32,w:1},
+  {emoji:"🦄",name:"独角兽",color:"#9b59b6",pts:50,sz:34,w:.5},
+  {emoji:"⭐",name:"金星",color:"#f1c40f",pts:100,sz:24,w:.2},
+];
+
+// State
+let prizes=[],particles=[],floatTexts=[],stars=[];
+let claw={x:W/2,y:60,open:.5,state:"idle",targetY:0,grabbed:null,speed:3,grabTimer:0,swing:0,swingV:0};
+let coins=5,score=0,highScore=+(localStorage.getItem("clawHS")||0),level=1,combo=0,gameOver=false,shakeT=0;
+let keys={},collected=new Set(JSON.parse(localStorage.getItem("clawColl")||"[]"));
+let frameCount=0;
+
+// Stars background
+for(let i=0;i<40;i++)stars.push({x:Math.random()*W,y:Math.random()*H,sz:Math.random()*2+.5,sp:Math.random()*.5+.2,bright:Math.random()});
+
+function wRand(types){
+  const tw=types.reduce((s,t)=>s+t.w,0);let r=Math.random()*tw;
+  for(const t of types){r-=t.w;if(r<=0)return t}return types[0];
+}
+
+function initPrizes(){
+  prizes=[];
+  const n=14+Math.floor(Math.random()*6);
+  const fl=H-42;
+  for(let i=0;i<n;i++){
+    const t=wRand(TYPES);
+    prizes.push({x:40+Math.random()*(W-80),y:fl-Math.random()*90-t.sz,...t,vx:0,vy:0,rot:Math.random()*Math.PI*2,settled:true});
+  }
+}
+
+function showToast(m){const t=document.getElementById("toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),2000)}
+
+function showCombo(c){
+  const d=document.getElementById("comboDisp");
+  d.textContent="x"+c+" COMBO!";
+  d.classList.remove("active");
+  void d.offsetWidth;
+  d.classList.add("active");
+  setTimeout(()=>d.classList.remove("active"),1500);
+}
+
+function updHUD(){
+  document.getElementById("hCoins").textContent=coins;
+  document.getElementById("hScore").textContent=score;
+  document.getElementById("hHigh").textContent=highScore;
+  document.getElementById("hLevel").textContent=level;
+  document.getElementById("hCombo").textContent=combo;
+}
+
+function updGallery(){
+  const g=document.getElementById("gallery");g.innerHTML="";
+  TYPES.forEach(t=>{
+    const d=document.createElement("div");
+    d.className="gi "+(collected.has(t.emoji)?"unlocked":"locked");
+    d.innerHTML=t.emoji+'<span class="pts">'+t.pts+'</span>';
+    d.title=t.name+" ("+t.pts+"分)";
+    g.appendChild(d);
+  });
+  localStorage.setItem("clawColl",JSON.stringify([...collected]));
+}
+
+// Particles
+function spawnP(x,y,col,n){for(let i=0;i<n;i++)particles.push({x,y,vx:(Math.random()-.5)*7,vy:(Math.random()-1)*6,life:1,dec:.02+Math.random()*.03,sz:2+Math.random()*4,col})}
+function addFloat(x,y,txt,col){floatTexts.push({x,y,txt,col,life:1,vy:-2})}
+
+function updParticles(){
+  for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.x+=p.vx;p.y+=p.vy;p.vy+=.15;p.life-=p.dec;if(p.life<=0)particles.splice(i,1)}
+  for(let i=floatTexts.length-1;i>=0;i--){const f=floatTexts[i];f.y+=f.vy;f.life-=.015;if(f.life<=0)floatTexts.splice(i,1)}
+}
+
+// Drawing
+function drawBg(){
+  // Animated stars
+  frameCount++;
+  for(const s of stars){
+    s.bright=.3+Math.sin(frameCount*.02+s.x)*0.4;
+    cx.globalAlpha=s.bright;
+    cx.fillStyle="#fff";
+    cx.beginPath();cx.arc(s.x,s.y,s.sz,0,Math.PI*2);cx.fill();
+  }
+  cx.globalAlpha=1;
+  // Walls
+  cx.strokeStyle="rgba(255,255,255,.1)";cx.lineWidth=2;cx.strokeRect(10,10,W-20,H-20);
+  // Rail
+  const rg=cx.createLinearGradient(10,40,W-10,40);rg.addColorStop(0,"#333");rg.addColorStop(.5,"#555");rg.addColorStop(1,"#333");
+  cx.fillStyle=rg;cx.fillRect(10,38,W-20,8);
+  // Rail bolts
+  for(let bx=30;bx<W-20;bx+=60){cx.fillStyle="#777";cx.beginPath();cx.arc(bx,42,3,0,Math.PI*2);cx.fill()}
+  // Floor
+  const fg=cx.createLinearGradient(0,H-42,0,H-10);fg.addColorStop(0,"#2d2d5e");fg.addColorStop(1,"#1a1a3e");
+  cx.fillStyle=fg;cx.fillRect(10,H-42,W-20,32);
+  // Exit zone
+  cx.fillStyle="rgba(247,151,30,.12)";cx.fillRect(W-85,H-42,75,32);
+  cx.strokeStyle="#f7971e";cx.lineWidth=1;cx.setLineDash([4,4]);cx.strokeRect(W-85,H-42,75,32);cx.setLineDash([]);
+  cx.fillStyle="#f7971e";cx.font="bold 11px sans-serif";cx.textAlign="center";cx.fillText("出口 ↓",W-47,H-22);
+}
+
+function drawRope(){
+  const sx=claw.x+Math.sin(claw.swing)*8;
+  cx.strokeStyle="#777";cx.lineWidth=2;
+  cx.beginPath();cx.moveTo(claw.x,44);
+  // Slight curve for swing
+  cx.quadraticCurveTo(sx,claw.y/2+20,sx,claw.y-12);
+  cx.stroke();
+  // Pulley
+  cx.fillStyle="#888";cx.beginPath();cx.arc(claw.x,44,5,0,Math.PI*2);cx.fill();
+  cx.strokeStyle="#666";cx.stroke();
+}
+
+function drawClaw(){
+  const sx=claw.x+Math.sin(claw.swing)*8;
+  const cy=claw.y;
+  const op=claw.open;
+  // Head
+  cx.fillStyle="#d0d0d0";cx.beginPath();cx.arc(sx,cy-8,9,0,Math.PI*2);cx.fill();
+  cx.strokeStyle="#999";cx.lineWidth=1;cx.stroke();
+  // 3 prongs
+  const angles=[-op,0,op];
+  const offsets=[[-5,0],[0,2],[5,0]];
+  for(let i=0;i<3;i++){
+    cx.save();cx.translate(sx+offsets[i][0],cy+offsets[i][1]);
+    cx.rotate(angles[i]*(i===1?.3:1));
+    const grad=cx.createLinearGradient(0,0,0,28);grad.addColorStop(0,"#bbb");grad.addColorStop(1,"#888");
+    cx.fillStyle=grad;
+    cx.beginPath();cx.moveTo(-3,0);cx.lineTo(-6,26);cx.quadraticCurveTo(0,30,6,26);cx.lineTo(3,0);cx.closePath();
+    cx.fill();cx.strokeStyle="#777";cx.lineWidth=.5;cx.stroke();
+    cx.restore();
+  }
+  if(claw.grabbed){claw.grabbed.x=sx;claw.grabbed.y=cy+33}
+}
+
+function drawPrizes(){
+  cx.textAlign="center";cx.textBaseline="middle";
+  for(const p of prizes){
+    cx.save();cx.translate(p.x,p.y);cx.rotate(p.rot);
+    // Glow for rare
+    if(p.w<=.5){
+      cx.shadowColor=p.color;cx.shadowBlur=10+Math.sin(frameCount*.05)*5;
+    }
+    cx.font=p.sz+"px sans-serif";cx.fillText(p.emoji,0,0);
+    cx.shadowBlur=0;cx.restore();
+  }
+}
+
+function drawParticles(){
+  for(const p of particles){cx.globalAlpha=p.life;cx.fillStyle=p.col;cx.beginPath();cx.arc(p.x,p.y,p.sz,0,Math.PI*2);cx.fill()}
+  cx.globalAlpha=1;
+  cx.textAlign="center";
+  for(const f of floatTexts){cx.globalAlpha=f.life;cx.fillStyle=f.col;cx.font="bold 18px sans-serif";cx.fillText(f.txt,f.x,f.y)}
+  cx.globalAlpha=1;
+}
+
+function drawGameOver(){
+  if(!gameOver)return;
+  cx.fillStyle="rgba(0,0,0,.75)";cx.fillRect(0,0,W,H);
+  cx.fillStyle="#ffd200";cx.font="bold 34px sans-serif";cx.textAlign="center";
+  cx.fillText("游戏结束!",W/2,H/2-40);
+  cx.fillStyle="#fff";cx.font="22px sans-serif";
+  cx.fillText("得分: "+score,W/2,H/2);
+  cx.fillStyle="#aaa";cx.font="14px sans-serif";
+  cx.fillText("最高: "+highScore,W/2,H/2+30);
+  cx.fillStyle="#ffd200";cx.font="16px sans-serif";
+  cx.fillText("按 R 或点击 🔄 重新开始",W/2,H/2+60);
+}
+
+// Logic
+function moveClaw(){
+  if(claw.state!=="idle")return;
+  let moved=false;
+  if(keys.ArrowLeft||keys.a){claw.x=Math.max(40,claw.x-claw.speed);moved=true}
+  if(keys.ArrowRight||keys.d){claw.x=Math.min(W-40,claw.x+claw.speed);moved=true}
+  if(moved&&frameCount%4===0)sfxMove();
+  // Swing physics
+  claw.swingV+=(moved?(keys.ArrowLeft?-.02:.02):0)-claw.swing*.05;
+  claw.swingV*=.92;
+  claw.swing+=claw.swingV;
+}
+
+function dropClaw(){
+  if(claw.state!=="idle"||gameOver)return;
+  if(coins<=0){gameOver=true;sfxGameOver();showToast("没有硬币了!");return}
+  initAudio();
+  coins--;updHUD();sfxDrop();
+  claw.state="dropping";claw.open=.7;
+  let ty=H-72;
+  for(const p of prizes){if(Math.abs(p.x-claw.x)<28&&p.y-28<ty)ty=p.y-18}
+  claw.targetY=ty;
+}
+
+function updClaw(){
+  const dropChance=.003+level*.001;
+  if(claw.state==="dropping"){
+    claw.y+=4.5;claw.swing*=.95;
+    if(claw.y>=claw.targetY){claw.y=claw.targetY;claw.state="grabbing";claw.grabTimer=18;shakeT=8}
+  }else if(claw.state==="grabbing"){
+    claw.open=Math.max(.08,claw.open-.045);claw.grabTimer--;
+    if(claw.grabTimer<=0){tryGrab();claw.state="rising"}
+  }else if(claw.state==="rising"){
+    claw.y-=3;
+    if(claw.grabbed&&Math.random()<dropChance){
+      const p=claw.grabbed;claw.grabbed=null;p.vy=2;p.settled=false;
+      sfxFail();showToast("掉了! 😢");shakeT=8;combo=0;updHUD();
+    }
+    if(claw.y<=60){
+      claw.y=60;
+      if(claw.grabbed){claw.state="toExit"}
+      else{finishTurn()}
+    }
+  }else if(claw.state==="toExit"){
+    const tx=W-47;
+    if(Math.abs(claw.x-tx)>3)claw.x+=(tx>claw.x?3:-3);
+    else{
+      if(claw.grabbed){
+        const p=claw.grabbed;
+        combo++;
+        const mult=Math.min(combo,5);
+        const pts=p.pts*mult;
+        score+=pts;
+        if(score>highScore){highScore=score;localStorage.setItem("clawHS",""+highScore)}
+        level=Math.floor(score/100)+1;
+        collected.add(p.emoji);
+        spawnP(p.x,p.y,p.color,25);
+        addFloat(p.x,p.y-20,"+"+pts,p.color);
+        sfxWin();
+        if(combo>=2)showCombo(combo);
+        if(combo>0&&combo%3===0){coins++;sfxCoin();showToast("连击奖励 +1 🪙!")}
+        else showToast("抓到 "+p.emoji+" "+p.name+"! +"+pts+"分");
+        const idx=prizes.indexOf(p);if(idx>=0)prizes.splice(idx,1);
+        claw.grabbed=null;updHUD();updGallery();
+      }
+      claw.state="returning";
+    }
+  }else if(claw.state==="returning"){
+    const tx=W/2;
+    if(Math.abs(claw.x-tx)>3)claw.x+=(tx>claw.x?3:-3);
+    else{claw.x=tx;finishTurn()}
+  }
+}
+
+function finishTurn(){
+  claw.state="idle";claw.open=.5;
+  if(coins<=0){gameOver=true;sfxGameOver();showToast("游戏结束! 得分: "+score)}
+  if(prizes.length<6){initPrizes();showToast("补充新娃娃!")}
+}
+
+function tryGrab(){
+  const sx=claw.x+Math.sin(claw.swing)*8;
+  let best=null,bd=Infinity;
+  for(const p of prizes){
+    const d=Math.abs(p.x-sx)+Math.abs(p.y-(claw.y+28));
+    if(d<30&&d<bd){best=p;bd=d}
+  }
+  if(best){
+    const ch=best.w>1?.88:best.w>.5?.68:.42;
+    if(Math.random()<ch){claw.grabbed=best;sfxGrab();showToast("抓住了! 🎉")}
+    else{sfxFail();showToast("没抓稳... 😅");shakeT=10;combo=0;updHUD()}
+  }else{combo=0;updHUD()}
+}
+
+function physics(){
+  const fl=H-42;
+  for(const p of prizes){
+    if(p===claw.grabbed)continue;
+    if(!p.settled){
+      p.vy+=.35;p.x+=p.vx;p.y+=p.vy;p.vx*=.97;p.rot+=p.vx*.02;
+      if(p.y+p.sz/2>fl){p.y=fl-p.sz/2;p.vy*=-.25;p.vx*=.7;if(Math.abs(p.vy)<.5){p.vy=0;p.settled=true}}
+      if(p.x<20){p.x=20;p.vx*=-.5}
+      if(p.x>W-20){p.x=W-20;p.vx*=-.5}
+      // Bounce off other prizes
+      for(const q of prizes){
+        if(q===p||q===claw.grabbed)continue;
+        const dx=p.x-q.x,dy=p.y-q.y,dist=Math.sqrt(dx*dx+dy*dy);
+        if(dist<(p.sz+q.sz)*.4&&dist>0){
+          const nx=dx/dist,ny=dy/dist;
+          p.vx+=nx*.5;p.vy+=ny*.3;
+          if(q.settled){q.vx=(q.vx||0)-nx*.2;q.vy=-1;q.settled=false}
+        }
+      }
+    }
+  }
+}
+
+// Main loop
+function update(){moveClaw();updClaw();physics();updParticles();if(shakeT>0)shakeT--}
+
+function draw(){
+  cx.clearRect(0,0,W,H);
+  cx.save();
+  if(shakeT>0)cx.translate((Math.random()-.5)*5,(Math.random()-.5)*5);
+  drawBg();drawPrizes();drawRope();drawClaw();drawParticles();drawGameOver();
+  cx.restore();
+}
+
+function loop(){update();draw();requestAnimationFrame(loop)}
+
+function reset(){
+  coins=5;score=0;combo=0;level=1;gameOver=false;shakeT=0;
+  claw={x:W/2,y:60,open:.5,state:"idle",targetY:0,grabbed:null,speed:3,grabTimer:0,swing:0,swingV:0};
+  particles=[];floatTexts=[];initPrizes();updHUD();updGallery();
+}
+
+// Input
+document.addEventListener("keydown",e=>{
+  keys[e.key]=true;
+  if(e.key===" "||e.key==="ArrowDown"){e.preventDefault();dropClaw()}
+  if(e.key==="r"||e.key==="R")reset();
+});
+document.addEventListener("keyup",e=>{keys[e.key]=false});
+
+// Touch/mouse buttons
+function bind(id,k){
+  const b=document.getElementById(id);
+  const on=()=>{keys[k]=true};const off=()=>{keys[k]=false};
+  b.addEventListener("mousedown",on);b.addEventListener("mouseup",off);b.addEventListener("mouseleave",off);
+  b.addEventListener("touchstart",e=>{e.preventDefault();on()},{passive:false});b.addEventListener("touchend",off);
+}
+bind("bL","ArrowLeft");bind("bR","ArrowRight");
+document.getElementById("bD").addEventListener("click",()=>{initAudio();dropClaw()});
+document.getElementById("bRs").addEventListener("click",reset);
+
+// Init
+initPrizes();updHUD();updGallery();loop();
+</script>
+</body>
+</html>
