@@ -750,17 +750,26 @@ function checkPUCollect(){
 function drawGuide(){
   if(claw.state!=="idle"||gameOver)return;
   cx.save();
-  cx.strokeStyle="rgba(255,210,0,.15)";cx.lineWidth=1;cx.setLineDash([4,8]);
+  // Dashed guide line
+  cx.strokeStyle="rgba(255,210,0,.12)";cx.lineWidth=1;cx.setLineDash([4,8]);
   cx.beginPath();cx.moveTo(claw.x,claw.y+30);cx.lineTo(claw.x,H-42);cx.stroke();
   cx.setLineDash([]);
+  // Claw shadow on floor
+  const shadowW=20+claw.open*15;
+  cx.fillStyle="rgba(255,210,0,.08)";
+  cx.beginPath();cx.ellipse(claw.x,H-42,shadowW,4,0,0,Math.PI*2);cx.fill();
   // Show nearest prize indicator
   let best=null,bd=Infinity;
   for(const p of prizes){
     const d=Math.abs(p.x-claw.x);if(d<30&&d<bd){best=p;bd=d}
   }
   if(best){
-    cx.strokeStyle="rgba(255,210,0,.25)";cx.lineWidth=2;
-    cx.beginPath();cx.arc(best.x,best.y,best.sz*.7,0,Math.PI*2);cx.stroke();
+    cx.strokeStyle="rgba(255,210,0,.2)";cx.lineWidth=1.5;
+    const pulseR=best.sz*.6+Math.sin(frameCount*.08)*3;
+    cx.beginPath();cx.arc(best.x,best.y,pulseR,0,Math.PI*2);cx.stroke();
+    // Prize name hint
+    cx.fillStyle="rgba(255,210,0,.4)";cx.font="10px sans-serif";cx.textAlign="center";
+    cx.fillText(best.name+" "+best.pts+"分",best.x,best.y-best.sz*.8-5);
   }
   cx.restore();
 }
@@ -827,6 +836,46 @@ function bind(id,k){
 bind("bL","ArrowLeft");bind("bR","ArrowRight");
 document.getElementById("bD").addEventListener("click",()=>{initAudio();dropClaw()});
 document.getElementById("bRs").addEventListener("click",reset);
+
+// Swipe gesture on canvas for mobile
+let touchStartX=0,touchStartY=0,touchActive=false;
+cv.addEventListener("touchstart",e=>{
+  e.preventDefault();initAudio();
+  const t=e.touches[0];touchStartX=t.clientX;touchStartY=t.clientY;touchActive=true;
+},{passive:false});
+cv.addEventListener("touchmove",e=>{
+  if(!touchActive)return;e.preventDefault();
+  const t=e.touches[0];
+  const dx=t.clientX-touchStartX;
+  if(claw.state==="idle"&&!gameOver){
+    // Direct position mapping: touch X maps to claw X
+    const rect=cv.getBoundingClientRect();
+    const relX=(t.clientX-rect.left)/rect.width*W;
+    claw.x=Math.max(40,Math.min(W-40,relX));
+  }
+  touchStartX=t.clientX;touchStartY=t.clientY;
+},{passive:false});
+cv.addEventListener("touchend",e=>{
+  if(!touchActive)return;
+  touchActive=false;
+  // Tap (no significant move) = drop
+  const t=e.changedTouches[0];
+  if(Math.abs(t.clientX-touchStartX)<10&&Math.abs(t.clientY-touchStartY)<10){
+    if(gameOver)reset();else dropClaw();
+  }
+});
+
+// Click on canvas to drop (desktop)
+cv.addEventListener("click",e=>{
+  if(gameOver){reset();return}
+  if(claw.state==="idle"){
+    initAudio();
+    // Also allow click-to-position
+    const rect=cv.getBoundingClientRect();
+    const relX=(e.clientX-rect.left)/rect.width*W;
+    claw.x=Math.max(40,Math.min(W-40,relX));
+  }
+});
 document.getElementById("statsBtn").addEventListener("click",()=>{document.getElementById("statsPanel").classList.toggle("open");updStats()});
 
 // Theme bar
