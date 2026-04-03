@@ -58,6 +58,13 @@ canvas{display:block}
 .theme-btn.active{border-color:#ffd200;color:#ffd200}
 .theme-btn.locked-theme{opacity:.35;cursor:not-allowed}
 .theme-btn .cost{font-size:.6rem;color:#f7971e}
+.tutorial-overlay{position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;padding:20px;text-align:center;cursor:pointer}
+.tutorial-overlay h2{font-size:1.8rem;margin-bottom:16px;background:linear-gradient(90deg,#f7971e,#ffd200);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.tutorial-overlay .step{margin:8px 0;font-size:1rem;line-height:1.6}
+.tutorial-overlay .step b{color:#ffd200}
+.tutorial-overlay .start-hint{margin-top:20px;font-size:1.1rem;color:#ffd200;animation:pulse 1.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
+.tutorial-overlay .emoji-row{font-size:2rem;margin:12px 0;letter-spacing:8px}
 </style>
 </head>
 <body>
@@ -100,6 +107,17 @@ canvas{display:block}
 <div class="stats-grid" id="statsGrid"></div>
 <h3 style="margin-top:8px">🏅 成就</h3>
 <div class="achievements" id="achList"></div>
+</div>
+<div class="tutorial-overlay" id="tutorial" style="display:none">
+<h2>🎮 云端抓娃娃机</h2>
+<div class="emoji-row">🧸 🐰 🐱 🦊 🐼 🦄 ⭐</div>
+<div class="step">⬅️ ➡️ <b>方向键</b>移动爪子</div>
+<div class="step">⬇️ <b>空格/↓</b> 投币抓取</div>
+<div class="step">🔥 <b>连击</b>翻倍得分, 每3连击奖励硬币</div>
+<div class="step">💪🧲💎 收集<b>道具</b>增强抓力</div>
+<div class="step">🎰 每抓到5个触发<b>幸运转盘</b></div>
+<div class="step">🎨 累计得分解锁<b>爪子皮肤</b></div>
+<p class="start-hint">点击任意位置开始游戏!</p>
 </div>
 <div class="toast" id="toast"></div>
 <script>
@@ -755,7 +773,7 @@ function updTimer(){
     lastTimerTick=now;timer--;
     document.getElementById("hTime").textContent=timer;
     if(timer<=10)sfxTick();
-    if(timer<=0){gameOver=true;sfxGameOver();showToast("时间到! 得分: "+score)}
+    if(timer<=0){gameOver=true;sfxGameOver();showToast("时间到! 得分: "+score);stats.totalGames++;saveStats();checkAchievements();updStats()}
   }
 }
 
@@ -836,6 +854,17 @@ document.addEventListener("keydown",e=>{
   if(e.key==="2")setMode("challenge");
   if(e.key==="3")setMode("zen");
 });
+
+// Tutorial
+const hasPlayed=localStorage.getItem("clawPlayed");
+if(!hasPlayed){
+  document.getElementById("tutorial").style.display="flex";
+  document.getElementById("tutorial").addEventListener("click",()=>{
+    document.getElementById("tutorial").style.display="none";
+    localStorage.setItem("clawPlayed","1");
+    initAudio();
+  });
+}
 
 // Init
 initPrizes();updHUD();updGallery();updStats();loop();
