@@ -98,7 +98,10 @@ canvas{display:block}
 <button id="mChallenge">⏱ 限时挑战</button>
 <button id="mZen">🧘 无限</button>
 </div>
-<p class="inst">← → 移动 | 空格/↓ 抓取 | R 重来 | 1/2/3 切换模式</p>
+<div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+<p class="inst">← → 移动 | 空格/↓ 抓取 | R 重来</p>
+<button id="muteBtn" style="background:none;border:1px solid #555;border-radius:16px;padding:2px 10px;color:#aaa;cursor:pointer;font-size:.8rem">🔊</button>
+</div>
 <div class="gallery" id="gallery"></div>
 <div class="theme-bar" id="themeBar"></div>
 <button class="stats-toggle" id="statsBtn">📊 统计 / 成就</button>
@@ -128,9 +131,45 @@ document.getElementById("gc").style.width=W+"px";
 
 // Audio context (lazy init on first interaction)
 let audioCtx=null;
-function initAudio(){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)()}
+let muted=localStorage.getItem("clawMute")==="1";
+let bgmGain=null,bgmPlaying=false;
+
+function initAudio(){
+  if(!audioCtx){
+    audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    updMuteBtn();
+    if(!muted)startBGM();
+  }
+}
+
+function updMuteBtn(){document.getElementById("muteBtn").textContent=muted?"🔇":"🔊"}
+
+function startBGM(){
+  if(!audioCtx||bgmPlaying)return;
+  bgmPlaying=true;
+  bgmGain=audioCtx.createGain();
+  bgmGain.gain.value=muted?0:.06;
+  bgmGain.connect(audioCtx.destination);
+  // Simple looping ambient music using oscillators
+  const notes=[262,294,330,349,392,349,330,294];
+  let noteIdx=0;
+  function playNote(){
+    if(!audioCtx)return;
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    o.type="sine";o.frequency.value=notes[noteIdx%notes.length];
+    g.gain.value=.08;
+    g.gain.exponentialRampToValueAtTime(.001,audioCtx.currentTime+.8);
+    o.connect(g);g.connect(bgmGain);
+    o.start();o.stop(audioCtx.currentTime+.8);
+    noteIdx++;
+    setTimeout(playNote,800);
+  }
+  playNote();
+}
+
 function playTone(freq,dur,type,vol){
-  if(!audioCtx)return;
+  if(!audioCtx||muted)return;
   const o=audioCtx.createOscillator(),g=audioCtx.createGain();
   o.type=type||"sine";o.frequency.value=freq;
   g.gain.value=vol||.15;
@@ -823,6 +862,7 @@ document.addEventListener("keydown",e=>{
   keys[e.key]=true;
   if(e.key===" "||e.key==="ArrowDown"){e.preventDefault();if(gameOver)reset();else dropClaw()}
   if(e.key==="r"||e.key==="R")reset();
+  if(e.key==="m"||e.key==="M"){muted=!muted;localStorage.setItem("clawMute",muted?"1":"0");updMuteBtn();if(bgmGain)bgmGain.gain.value=muted?0:.06}
 });
 document.addEventListener("keyup",e=>{keys[e.key]=false});
 
@@ -836,6 +876,11 @@ function bind(id,k){
 bind("bL","ArrowLeft");bind("bR","ArrowRight");
 document.getElementById("bD").addEventListener("click",()=>{initAudio();dropClaw()});
 document.getElementById("bRs").addEventListener("click",reset);
+document.getElementById("muteBtn").addEventListener("click",()=>{
+  muted=!muted;localStorage.setItem("clawMute",muted?"1":"0");updMuteBtn();
+  if(bgmGain)bgmGain.gain.value=muted?0:.06;
+  if(!bgmPlaying&&!muted&&audioCtx)startBGM();
+});
 
 // Swipe gesture on canvas for mobile
 let touchStartX=0,touchStartY=0,touchActive=false;
