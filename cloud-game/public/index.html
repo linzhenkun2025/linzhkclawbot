@@ -396,6 +396,80 @@ function drawParticles(){
   cx.globalAlpha=1;
 }
 
+// Lucky draw bonus
+let luckyDraw={active:false,timer:0,slots:[0,0,0],spinning:[false,false,false],results:[],phase:0};
+const LUCKY_PRIZES=["🪙+3","🪙+5","💪","🧲","💎","⭐x2","🎁"];
+const LUCKY_COLORS=["#ffd200","#ffd200","#e74c3c","#3498db","#9b59b6","#f1c40f","#2ecc71"];
+
+function startLuckyDraw(){
+  luckyDraw.active=true;luckyDraw.timer=0;luckyDraw.phase=0;
+  luckyDraw.slots=[0,0,0];luckyDraw.spinning=[true,true,true];
+  luckyDraw.results=[];
+  showToast("🎰 幸运转盘!");
+}
+
+function updLuckyDraw(){
+  if(!luckyDraw.active)return;
+  luckyDraw.timer++;
+  // Spin slots
+  for(let i=0;i<3;i++){
+    if(luckyDraw.spinning[i]){
+      luckyDraw.slots[i]=(luckyDraw.slots[i]+.15*(3-i*.5))%LUCKY_PRIZES.length;
+      // Stop each slot at different times
+      if(luckyDraw.timer>30+i*20){
+        luckyDraw.spinning[i]=false;
+        luckyDraw.slots[i]=Math.floor(Math.random()*LUCKY_PRIZES.length);
+        sfxGrab();
+      }
+    }
+  }
+  // All stopped - apply reward
+  if(!luckyDraw.spinning[0]&&!luckyDraw.spinning[1]&&!luckyDraw.spinning[2]&&luckyDraw.phase===0){
+    luckyDraw.phase=1;
+    // Check for matches
+    const s=luckyDraw.slots;
+    const allSame=s[0]===s[1]&&s[1]===s[2];
+    const twoSame=s[0]===s[1]||s[1]===s[2]||s[0]===s[2];
+    if(allSame){
+      coins+=5;score+=200;spawnConfetti(80);showToast("三连! +5🪙 +200分!");sfxWin();
+    }else if(twoSame){
+      coins+=2;score+=50;spawnConfetti(30);showToast("两连! +2🪙 +50分!");sfxCoin();
+    }else{
+      coins+=1;showToast("安慰奖 +1🪙");sfxCoin();
+    }
+    updHUD();
+  }
+  // Close after delay
+  if(luckyDraw.phase===1&&luckyDraw.timer>120){luckyDraw.active=false}
+}
+
+function drawLuckyDraw(){
+  if(!luckyDraw.active)return;
+  cx.fillStyle="rgba(0,0,0,.85)";cx.fillRect(0,0,W,H);
+  cx.fillStyle="#ffd200";cx.font="bold 24px sans-serif";cx.textAlign="center";
+  cx.fillText("🎰 幸运转盘 🎰",W/2,H/2-70);
+
+  // Slot boxes
+  for(let i=0;i<3;i++){
+    const bx=W/2-90+i*60,by=H/2-30;
+    cx.fillStyle="rgba(255,255,255,.1)";
+    cx.fillRect(bx,by,50,50);
+    cx.strokeStyle="#ffd200";cx.lineWidth=2;cx.strokeRect(bx,by,50,50);
+
+    const idx=Math.floor(luckyDraw.slots[i])%LUCKY_PRIZES.length;
+    cx.fillStyle=LUCKY_COLORS[idx];cx.font="bold 18px sans-serif";
+    cx.fillText(LUCKY_PRIZES[idx],bx+25,by+30);
+  }
+
+  if(luckyDraw.phase===1){
+    const pulse=.5+Math.sin(frameCount*.08)*.3;
+    cx.globalAlpha=pulse;
+    cx.fillStyle="#aaa";cx.font="14px sans-serif";
+    cx.fillText("继续游戏中...",W/2,H/2+50);
+    cx.globalAlpha=1;
+  }
+}
+
 // Game over session stats
 let sessionGrabs=0,sessionMisses=0,sessionMaxCombo=0;
 
@@ -514,6 +588,8 @@ function updClaw(){
         if(level>stats.maxLevel)stats.maxLevel=level;
         stats.prizeCounts[p.emoji]=(stats.prizeCounts[p.emoji]||0)+1;
         saveStats();checkAchievements();updStats();
+        // Lucky draw every 5 grabs
+        if(sessionGrabs>0&&sessionGrabs%5===0&&!luckyDraw.active)startLuckyDraw();
         updHUD();updGallery();
       }
       claw.state="returning";
@@ -654,13 +730,13 @@ function updTimer(){
 }
 
 // Main loop
-function update(){moveClaw();updClaw();physics();updParticles();maybeSpawnPU();updPowerups();checkPUCollect();updTimer();if(shakeT>0)shakeT--}
+function update(){if(luckyDraw.active){updLuckyDraw();updParticles();return}moveClaw();updClaw();physics();updParticles();maybeSpawnPU();updPowerups();checkPUCollect();updTimer();if(shakeT>0)shakeT--}
 
 function draw(){
   cx.clearRect(0,0,W,H);
   cx.save();
   if(shakeT>0)cx.translate((Math.random()-.5)*5,(Math.random()-.5)*5);
-  drawBg();drawLights();drawGuide();drawPrizes();drawPU();drawRope();drawClaw();drawParticles();drawConfetti();drawGameOver();
+  drawBg();drawLights();drawGuide();drawPrizes();drawPU();drawRope();drawClaw();drawParticles();drawConfetti();drawLuckyDraw();drawGameOver();
   cx.restore();
 }
 
