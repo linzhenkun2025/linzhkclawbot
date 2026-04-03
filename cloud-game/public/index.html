@@ -40,6 +40,19 @@ canvas{display:block}
 @keyframes comboPulse{0%{transform:translate(-50%,-50%) scale(2);opacity:0}50%{opacity:1}100%{transform:translate(-50%,-50%) scale(1);opacity:1}}
 @keyframes neonPulse{0%,100%{box-shadow:0 0 20px rgba(255,210,0,.15),inset 0 0 60px rgba(0,0,0,.4)}50%{box-shadow:0 0 40px rgba(255,210,0,.3),0 0 80px rgba(102,126,234,.2),inset 0 0 60px rgba(0,0,0,.4)}}
 #gc{animation:neonPulse 3s ease-in-out infinite}
+.stats-toggle{margin-top:8px;padding:6px 16px;font-size:.8rem;border:1px solid rgba(255,255,255,.15);border-radius:20px;cursor:pointer;background:rgba(255,255,255,.05);color:#aaa;transition:all .2s}
+.stats-toggle:hover{background:rgba(255,255,255,.1);color:#fff}
+.stats-panel{display:none;margin-top:6px;background:rgba(255,255,255,.05);border-radius:12px;padding:12px 16px;max-width:600px;width:100%;font-size:.8rem}
+.stats-panel.open{display:block}
+.stats-panel h3{font-size:.9rem;color:#ffd200;margin-bottom:6px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
+.stat-item{background:rgba(255,255,255,.05);border-radius:8px;padding:6px 10px}
+.stat-item .label{color:#888;font-size:.7rem}
+.stat-item .value{color:#fff;font-size:1rem;font-weight:700}
+.achievements{margin-top:8px}
+.ach-item{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,.05);border-radius:16px;padding:3px 10px;margin:2px;font-size:.7rem}
+.ach-item.earned{background:rgba(255,210,0,.12);border:1px solid rgba(255,210,0,.2)}
+.ach-item.locked{opacity:.4}
 </style>
 </head>
 <body>
@@ -75,6 +88,13 @@ canvas{display:block}
 </div>
 <p class="inst">← → 移动 | 空格/↓ 抓取 | R 重来 | 1/2/3 切换模式</p>
 <div class="gallery" id="gallery"></div>
+<button class="stats-toggle" id="statsBtn">📊 统计 / 成就</button>
+<div class="stats-panel" id="statsPanel">
+<h3>📊 游戏统计</h3>
+<div class="stats-grid" id="statsGrid"></div>
+<h3 style="margin-top:8px">🏅 成就</h3>
+<div class="achievements" id="achList"></div>
+</div>
 <div class="toast" id="toast"></div>
 <script>
 const cv=document.getElementById("cv"),cx=cv.getContext("2d");
@@ -128,6 +148,49 @@ let timer=60,timerInterval=null,lastTimerTick=0;
 let powerups={grip:0,magnet:0,double:0}; // remaining frames
 // Power-up items on field
 let puItems=[];
+
+// Persistent stats
+let stats=JSON.parse(localStorage.getItem("clawStats")||'{"totalGrabs":0,"totalMiss":0,"totalGames":0,"totalScore":0,"maxCombo":0,"maxLevel":0,"prizeCounts":{}}');
+function saveStats(){localStorage.setItem("clawStats",JSON.stringify(stats))}
+
+// Achievements
+const ACHIEVEMENTS=[
+  {id:"first",name:"初次体验",desc:"完成第一局",icon:"🎮",check:()=>stats.totalGames>=1},
+  {id:"10grabs",name:"小能手",desc:"累计抓到10个",icon:"🧸",check:()=>stats.totalGrabs>=10},
+  {id:"50grabs",name:"抓娃娃达人",desc:"累计抓到50个",icon:"🏅",check:()=>stats.totalGrabs>=50},
+  {id:"combo3",name:"连击新星",desc:"达成3连击",icon:"⚡",check:()=>stats.maxCombo>=3},
+  {id:"combo5",name:"连击大师",desc:"达成5连击",icon:"🔥",check:()=>stats.maxCombo>=5},
+  {id:"lv5",name:"步步高升",desc:"达到Lv.5",icon:"📈",check:()=>stats.maxLevel>=5},
+  {id:"lv10",name:"高手过招",desc:"达到Lv.10",icon:"🚀",check:()=>stats.maxLevel>=10},
+  {id:"all7",name:"全部收集",desc:"收集全部7种娃娃",icon:"🌟",check:()=>collected.size>=7},
+  {id:"score500",name:"半千分",desc:"单局得分超过500",icon:"💰",check:()=>stats.totalScore>=500},
+  {id:"games10",name:"常客",desc:"玩过10局",icon:"🔄",check:()=>stats.totalGames>=10},
+];
+let earnedAch=new Set(JSON.parse(localStorage.getItem("clawAch")||"[]"));
+
+function checkAchievements(){
+  for(const a of ACHIEVEMENTS){
+    if(!earnedAch.has(a.id)&&a.check()){
+      earnedAch.add(a.id);
+      localStorage.setItem("clawAch",JSON.stringify([...earnedAch]));
+      showToast("成就解锁: "+a.icon+" "+a.name);
+      sfxPowerup();spawnConfetti(30);
+    }
+  }
+}
+
+function updStats(){
+  const g=document.getElementById("statsGrid");
+  g.innerHTML=[
+    ["总抓取",stats.totalGrabs],["总失误",stats.totalMiss],["总游戏",stats.totalGames],
+    ["总得分",stats.totalScore],["最高连击",stats.maxCombo],["最高等级",stats.maxLevel],
+    ["成功率",stats.totalGrabs+stats.totalMiss>0?Math.round(stats.totalGrabs/(stats.totalGrabs+stats.totalMiss)*100)+"%":"--"],
+    ["收集",collected.size+"/"+TYPES.length],
+  ].map(([l,v])=>`<div class="stat-item"><div class="label">${l}</div><div class="value">${v}</div></div>`).join("");
+
+  const al=document.getElementById("achList");
+  al.innerHTML=ACHIEVEMENTS.map(a=>`<span class="ach-item ${earnedAch.has(a.id)?"earned":"locked"}" title="${a.desc}">${a.icon} ${a.name}</span>`).join("");
+}
 
 // Stars background
 for(let i=0;i<40;i++)stars.push({x:Math.random()*W,y:Math.random()*H,sz:Math.random()*2+.5,sp:Math.random()*.5+.2,bright:Math.random()});
@@ -410,7 +473,13 @@ function updClaw(){
         if(combo>0&&combo%3===0){coins++;sfxCoin();showToast("连击奖励 +1 🪙!")}
         else showToast("抓到 "+p.emoji+" "+p.name+"! +"+pts+"分");
         const idx=prizes.indexOf(p);if(idx>=0)prizes.splice(idx,1);
-        claw.grabbed=null;updHUD();updGallery();
+        claw.grabbed=null;
+        stats.totalGrabs++;stats.totalScore=Math.max(stats.totalScore,score);
+        if(combo>stats.maxCombo)stats.maxCombo=combo;
+        if(level>stats.maxLevel)stats.maxLevel=level;
+        stats.prizeCounts[p.emoji]=(stats.prizeCounts[p.emoji]||0)+1;
+        saveStats();checkAchievements();updStats();
+        updHUD();updGallery();
       }
       claw.state="returning";
     }
@@ -423,7 +492,7 @@ function updClaw(){
 
 function finishTurn(){
   claw.state="idle";claw.open=.5;
-  if(coins<=0){gameOver=true;sfxGameOver();showToast("游戏结束! 得分: "+score)}
+  if(coins<=0){gameOver=true;sfxGameOver();showToast("游戏结束! 得分: "+score);stats.totalGames++;saveStats();checkAchievements();updStats()}
   if(prizes.length<6){initPrizes();showToast("补充新娃娃!")}
 }
 
@@ -438,7 +507,7 @@ function tryGrab(){
     let ch=best.w>1?.88:best.w>.5?.68:.42;
     if(powerups.grip>0)ch=Math.min(ch+.35,1);
     if(Math.random()<ch){claw.grabbed=best;sfxGrab();showToast("抓住了! 🎉")}
-    else{sfxFail();showToast("没抓稳... 😅");shakeT=10;combo=0;updHUD()}
+    else{sfxFail();showToast("没抓稳... 😅");shakeT=10;combo=0;stats.totalMiss++;saveStats();updStats();updHUD()}
   }else{combo=0;updHUD()}
 }
 
@@ -598,6 +667,7 @@ function bind(id,k){
 bind("bL","ArrowLeft");bind("bR","ArrowRight");
 document.getElementById("bD").addEventListener("click",()=>{initAudio();dropClaw()});
 document.getElementById("bRs").addEventListener("click",reset);
+document.getElementById("statsBtn").addEventListener("click",()=>{document.getElementById("statsPanel").classList.toggle("open");updStats()});
 document.getElementById("mNormal").addEventListener("click",()=>setMode("normal"));
 document.getElementById("mChallenge").addEventListener("click",()=>setMode("challenge"));
 document.getElementById("mZen").addEventListener("click",()=>setMode("zen"));
@@ -610,7 +680,7 @@ document.addEventListener("keydown",e=>{
 });
 
 // Init
-initPrizes();updHUD();updGallery();loop();
+initPrizes();updHUD();updGallery();updStats();loop();
 </script>
 </body>
 </html>
