@@ -204,8 +204,10 @@ function initPrizes(){
   prizes=[];
   const n=14+Math.floor(Math.random()*6);
   const fl=H-42;
+  // Higher levels adjust weights to include more rare prizes
+  const adjTypes=TYPES.map(t=>({...t,w:t.w*(1+level*.05*(t.pts>=50?2:1))}));
   for(let i=0;i<n;i++){
-    const t=wRand(TYPES);
+    const t=wRand(adjTypes);
     prizes.push({x:40+Math.random()*(W-80),y:fl-Math.random()*90-t.sz,...t,vx:0,vy:0,rot:Math.random()*Math.PI*2,settled:true});
   }
 }
@@ -394,25 +396,57 @@ function drawParticles(){
   cx.globalAlpha=1;
 }
 
+// Game over session stats
+let sessionGrabs=0,sessionMisses=0,sessionMaxCombo=0;
+
 function drawGameOver(){
   if(!gameOver)return;
-  cx.fillStyle="rgba(0,0,0,.75)";cx.fillRect(0,0,W,H);
-  cx.fillStyle="#ffd200";cx.font="bold 34px sans-serif";cx.textAlign="center";
-  cx.fillText("游戏结束!",W/2,H/2-40);
-  cx.fillStyle="#fff";cx.font="22px sans-serif";
-  cx.fillText("得分: "+score,W/2,H/2);
-  cx.fillStyle="#aaa";cx.font="14px sans-serif";
-  cx.fillText("最高: "+highScore,W/2,H/2+30);
-  cx.fillStyle="#ffd200";cx.font="16px sans-serif";
-  cx.fillText("按 R 或点击 🔄 重新开始",W/2,H/2+60);
+  cx.fillStyle="rgba(0,0,0,.8)";cx.fillRect(0,0,W,H);
+
+  // Title
+  cx.fillStyle="#ffd200";cx.font="bold 32px sans-serif";cx.textAlign="center";
+  cx.fillText(gameMode==="challenge"?"时间到!":"游戏结束!",W/2,H/2-80);
+
+  // Score with glow
+  cx.shadowColor="#ffd200";cx.shadowBlur=15;
+  cx.fillStyle="#fff";cx.font="bold 42px sans-serif";
+  cx.fillText(score,W/2,H/2-35);
+  cx.shadowBlur=0;
+  cx.fillStyle="#aaa";cx.font="13px sans-serif";
+  cx.fillText("分",W/2+40,H/2-35);
+
+  // Stats summary
+  const ly=H/2+5;
+  cx.font="14px sans-serif";
+  cx.fillStyle="#8e8ea0";
+  const rate=sessionGrabs+sessionMisses>0?Math.round(sessionGrabs/(sessionGrabs+sessionMisses)*100):0;
+  cx.fillText(`抓到 ${sessionGrabs} | 失误 ${sessionMisses} | 成功率 ${rate}%`,W/2,ly);
+  cx.fillText(`最高连击 x${sessionMaxCombo} | 等级 Lv.${level}`,W/2,ly+22);
+
+  // High score indicator
+  if(score>=highScore&&score>0){
+    cx.fillStyle="#ffd200";cx.font="bold 16px sans-serif";
+    cx.fillText("🏆 新纪录!",W/2,ly+50);
+  }else{
+    cx.fillStyle="#666";cx.font="14px sans-serif";
+    cx.fillText("最高: "+highScore,W/2,ly+50);
+  }
+
+  // Restart hint with pulse
+  const pulse=.5+Math.sin(frameCount*.05)*.3;
+  cx.globalAlpha=pulse;
+  cx.fillStyle="#ffd200";cx.font="bold 15px sans-serif";
+  cx.fillText("按 R 或 空格 重新开始",W/2,ly+80);
+  cx.globalAlpha=1;
 }
 
 // Logic
 function moveClaw(){
   if(claw.state!=="idle")return;
   let moved=false;
-  if(keys.ArrowLeft||keys.a){claw.x=Math.max(40,claw.x-claw.speed);moved=true}
-  if(keys.ArrowRight||keys.d){claw.x=Math.min(W-40,claw.x+claw.speed);moved=true}
+  const spd=claw.speed+Math.min(level*.15,2);
+  if(keys.ArrowLeft||keys.a){claw.x=Math.max(40,claw.x-spd);moved=true}
+  if(keys.ArrowRight||keys.d){claw.x=Math.min(W-40,claw.x+spd);moved=true}
   if(moved&&frameCount%4===0)sfxMove();
   // Swing physics
   claw.swingV+=(moved?(keys.ArrowLeft?-.02:.02):0)-claw.swing*.05;
@@ -474,7 +508,8 @@ function updClaw(){
         else showToast("抓到 "+p.emoji+" "+p.name+"! +"+pts+"分");
         const idx=prizes.indexOf(p);if(idx>=0)prizes.splice(idx,1);
         claw.grabbed=null;
-        stats.totalGrabs++;stats.totalScore=Math.max(stats.totalScore,score);
+        sessionGrabs++;stats.totalGrabs++;stats.totalScore=Math.max(stats.totalScore,score);
+        if(combo>sessionMaxCombo)sessionMaxCombo=combo;
         if(combo>stats.maxCombo)stats.maxCombo=combo;
         if(level>stats.maxLevel)stats.maxLevel=level;
         stats.prizeCounts[p.emoji]=(stats.prizeCounts[p.emoji]||0)+1;
@@ -507,7 +542,7 @@ function tryGrab(){
     let ch=best.w>1?.88:best.w>.5?.68:.42;
     if(powerups.grip>0)ch=Math.min(ch+.35,1);
     if(Math.random()<ch){claw.grabbed=best;sfxGrab();showToast("抓住了! 🎉")}
-    else{sfxFail();showToast("没抓稳... 😅");shakeT=10;combo=0;stats.totalMiss++;saveStats();updStats();updHUD()}
+    else{sfxFail();showToast("没抓稳... 😅");shakeT=10;combo=0;sessionMisses++;stats.totalMiss++;saveStats();updStats();updHUD()}
   }else{combo=0;updHUD()}
 }
 
@@ -634,6 +669,7 @@ function loop(){update();draw();requestAnimationFrame(loop)}
 function reset(){
   coins=gameMode==="zen"?999:gameMode==="challenge"?10:5;
   score=0;combo=0;level=1;gameOver=false;shakeT=0;
+  sessionGrabs=0;sessionMisses=0;sessionMaxCombo=0;
   timer=60;lastTimerTick=Date.now();
   powerups={grip:0,magnet:0,double:0};puItems=[];
   document.getElementById("hTimer").style.display=gameMode==="challenge"?"inline":"none";
@@ -652,7 +688,7 @@ function setMode(m){
 // Input
 document.addEventListener("keydown",e=>{
   keys[e.key]=true;
-  if(e.key===" "||e.key==="ArrowDown"){e.preventDefault();dropClaw()}
+  if(e.key===" "||e.key==="ArrowDown"){e.preventDefault();if(gameOver)reset();else dropClaw()}
   if(e.key==="r"||e.key==="R")reset();
 });
 document.addEventListener("keyup",e=>{keys[e.key]=false});
